@@ -3,6 +3,7 @@ import pandas as pd
 from data_fetcher import fetch_stock_data, get_available_timeframes
 from technical_analysis import calculate_ma_technical_rating, calculate_pricema_rating
 from visualisation import create_candlestick_chart
+from rsi import calculate_rsi, rsi_signal
 
 def initialize_session_state():
     """Initialize Streamlit session state variables if they don't exist"""
@@ -12,8 +13,7 @@ def initialize_session_state():
         st.session_state.last_timeframe = None
 
 def display_technical_analysis(df: pd.DataFrame, ma_rating: dict, price_ma_rating: dict):
-    """Display technical analysis information"""
-
+    """Display technical analysis information (without RSI in the columns)"""
     # Move Technical Rating Explanation above the ratings
     with st.expander("Technical Rating Explanation"):
         st.markdown("""
@@ -30,7 +30,7 @@ def display_technical_analysis(df: pd.DataFrame, ma_rating: dict, price_ma_ratin
         *This technical analysis is for informational purposes only and should not be considered financial advice.*
         """)
 
-    # Create two columns for the ratings
+    # Create two columns for the ratings (MA and Price/MA)
     col1, col2 = st.columns(2)
     
     # MA Rating in first column
@@ -44,7 +44,6 @@ def display_technical_analysis(df: pd.DataFrame, ma_rating: dict, price_ma_ratin
         st.subheader(f"Price/MA Rating: {price_ma_rating['emoji']} {price_ma_rating['rating']} ({price_ma_rating['confidence']})")
         for detail in price_ma_rating['details']:
             st.write(f"• {detail}")
-
 
 def display_moving_averages(df: pd.DataFrame):
     """Display moving average analysis table"""
@@ -66,18 +65,28 @@ def display_moving_averages(df: pd.DataFrame):
     })
     st.table(ma_df)
 
+def display_rsi_analysis(df: pd.DataFrame):
+    """Display RSI rating in a style similar to the MA rating."""
+    
+    rsi_value = df['RSI'].iloc[-1]
+    rsi_rating = rsi_signal(rsi_value)
+    
+    st.subheader(f"RSI Rating: {rsi_rating['emoji']} {rsi_rating['rating']} ({rsi_rating['confidence']})")
+    for detail in rsi_rating['details']:
+        st.write(f"• {detail}")
+    
+    
+
+
 def display_price_statistics(df: pd.DataFrame):
     """Display price statistics including 52-week high/low with fallback to min/max if insufficient data"""
-
-    # Check if we have at least 252 days of data for a full 52-week calculation
     if len(df) >= 252:
         high_52w = df['High'].rolling(window=252, min_periods=1).max().iloc[-1]
         low_52w = df['Low'].rolling(window=252, min_periods=1).min().iloc[-1]
     else:
-        high_52w = df['High'].max()  # Use the max high if not enough data
-        low_52w = df['Low'].min()  # Use the min low if not enough data
+        high_52w = df['High'].max()
+        low_52w = df['Low'].min()
 
-    # Display the statistics in two rows
     stats_cols1 = st.columns(4)
     with stats_cols1[0]:
         st.metric("Current", f"${df['Close'].iloc[-1]:.2f}", 
@@ -95,6 +104,7 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df['MA20'] = df['Close'].rolling(window=20).mean()
     df['MA60'] = df['Close'].rolling(window=60).mean()
     df['MA200'] = df['Close'].rolling(window=200).mean()
+    df['RSI'] = calculate_rsi(df['Close'])
     return df
 
 def main():
@@ -119,15 +129,12 @@ def main():
         timeframe = st.selectbox("Select timeframe", list(timeframes.keys()))
     
     # Additional options
-    col3,col4  = st.columns(2)
+    col3, col4 = st.columns(2)
     with col3:
         show_mas = st.checkbox("Show Moving Averages", value=True)
         st.markdown("Applicable for US stock only:")
         remove_after_hours = st.checkbox("Remove after-hours trading", value=True)
     
-    
-    
-    # Only fetch new data if inputs have changed or button is pressed
     if (st.button("Get Data") or 
         symbol != st.session_state.last_symbol or 
         timeframe != st.session_state.last_timeframe):
@@ -151,24 +158,26 @@ def main():
                 ma_rating = calculate_ma_technical_rating(df)
                 price_ma_rating = calculate_pricema_rating(df)
                 
+                # Display price statistics
+                display_price_statistics(df)
+                
                 # Create and display chart
                 fig = create_candlestick_chart(df, symbol, show_mas, interval)
-
-                # Display price statistics current,high,low,volume
-                display_price_statistics(df)
-
-                # Display chart
                 st.plotly_chart(fig, use_container_width=True)
-
+                
                 # Show raw data
                 with st.expander("View Raw Data"):
                     st.dataframe(df.reset_index())
-
-                # Display analysis components
+                
+                # Display analysis components (MA & Price/MA ratings)
                 display_technical_analysis(df, ma_rating, price_ma_rating)
-
+                
+                # Display moving averages (if checked)
                 if show_mas:
                     display_moving_averages(df)
+                
+                # Now display RSI as a separate table below the MAs
+                display_rsi_analysis(df)
                 
             except ValueError as ve:
                 st.error(f"Error: {str(ve)}")
