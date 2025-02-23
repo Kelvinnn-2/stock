@@ -67,7 +67,8 @@ def fetch_stock_data(symbol: str, period: str, interval: str, remove_after_hours
         # Forward fill any missing values
         df = df.ffill()
 
-        
+        df = df.ffill()
+
         # Ensure we have the required columns
         required_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
         if not all(col in df.columns for col in required_columns):
@@ -89,7 +90,8 @@ def get_available_timeframes():
         dict: Dictionary mapping timeframe names to (period, interval) tuples
     """
     return {
-        "1mo": ("5y", "1d"),
+        "1mo": ("5y", "1mo"),
+        "1wk": ("5y", "1wk"),
         "1d": ("1y", "1d"),
         "4h": ("90d", "1h"),
         "1h": ("30d", "30m"),

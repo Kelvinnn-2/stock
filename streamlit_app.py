@@ -1,3 +1,5 @@
+# main.py
+
 import streamlit as st
 import pandas as pd
 from data_fetcher import fetch_stock_data, get_available_timeframes
@@ -5,16 +7,22 @@ from technical_analysis import calculate_ma_technical_rating, calculate_pricema_
 from visualisation import create_candlestick_chart
 from rsi import calculate_rsi, rsi_signal
 
+# Import your BRV logic
+from technical_brv import (
+    calculate_brv_rating,
+    interpret_brv_signals,
+    display_brv_stacked_chart
+)
+
 def initialize_session_state():
-    """Initialize Streamlit session state variables if they don't exist"""
+    """Initialize Streamlit session state variables if they don't exist."""
     if 'last_symbol' not in st.session_state:
         st.session_state.last_symbol = None
     if 'last_timeframe' not in st.session_state:
         st.session_state.last_timeframe = None
 
 def display_technical_analysis(df: pd.DataFrame, ma_rating: dict, price_ma_rating: dict):
-    """Display technical analysis information (without RSI in the columns)"""
-    # Move Technical Rating Explanation above the ratings
+    """Display technical analysis information (without RSI in the columns)."""
     with st.expander("Technical Rating Explanation"):
         st.markdown("""
         **Rating System Explanation:**
@@ -30,23 +38,18 @@ def display_technical_analysis(df: pd.DataFrame, ma_rating: dict, price_ma_ratin
         *This technical analysis is for informational purposes only and should not be considered financial advice.*
         """)
 
-    # Create two columns for the ratings (MA and Price/MA)
     col1, col2 = st.columns(2)
-    
-    # MA Rating in first column
     with col1:
         st.subheader(f"MA Rating: {ma_rating['emoji']} {ma_rating['rating']} ({ma_rating['confidence']})")
         for detail in ma_rating['details']:
             st.write(f"• {detail}")
-    
-    # Price/MA Rating in second column
     with col2:
         st.subheader(f"Price/MA Rating: {price_ma_rating['emoji']} {price_ma_rating['rating']} ({price_ma_rating['confidence']})")
         for detail in price_ma_rating['details']:
             st.write(f"• {detail}")
 
 def display_moving_averages(df: pd.DataFrame):
-    """Display moving average analysis table"""
+    """Display moving average analysis table."""
     st.subheader("Moving Average Analysis")
     ma_df = pd.DataFrame({
         'Indicator': ['MA10', 'MA20', 'MA60', 'MA200'],
@@ -67,19 +70,43 @@ def display_moving_averages(df: pd.DataFrame):
 
 def display_rsi_analysis(df: pd.DataFrame):
     """Display RSI rating in a style similar to the MA rating."""
-    
     rsi_value = df['RSI'].iloc[-1]
     rsi_rating = rsi_signal(rsi_value)
-    
     st.subheader(f"RSI Rating: {rsi_rating['emoji']} {rsi_rating['rating']} ({rsi_rating['confidence']})")
     for detail in rsi_rating['details']:
         st.write(f"• {detail}")
+
+def display_brv_analysis(df: pd.DataFrame):
+    st.subheader("Banker-Retailer Volume (BRV)")
+    if not {'Retailer', 'HotMoney', 'Banker'}.issubset(df.columns):
+        st.warning("BRV columns not found. Make sure you ran 'calculate_brv_rating(df)' first.")
+        return
+
+    # Get the latest values
+    latest_banker   = df['Banker'].iloc[-1]
+    latest_hotmoney = df['HotMoney'].iloc[-1]
+    latest_retailer = df['Retailer'].iloc[-1]
+
+    # Interpret signals as a dictionary
+    brv_dict = interpret_brv_signals(latest_banker, latest_hotmoney, latest_retailer)
+
+    # Display the rating
+    brv_dict = interpret_brv_signals(latest_banker, latest_hotmoney, latest_retailer)
+
+    st.subheader(f"BRV Rating: {brv_dict['emoji']} {brv_dict['rating']} ({brv_dict['confidence']})")
+    for detail in brv_dict['details']:
+        st.write(f"• {detail}")
+
+
+    # Optional: show numeric values
+    st.write(f"**Banker**: {latest_banker:.2f} | **Hot Money**: {latest_hotmoney:.2f} | **Retailer**: {latest_retailer:.2f}")
     
-    
+    # Optionally, display your stacked bar chart
+    display_brv_stacked_chart(df)
 
 
 def display_price_statistics(df: pd.DataFrame):
-    """Display price statistics including 52-week high/low with fallback to min/max if insufficient data"""
+    """Display price statistics including 52-week high/low with fallback to min/max if insufficient data."""
     if len(df) >= 252:
         high_52w = df['High'].rolling(window=252, min_periods=1).max().iloc[-1]
         low_52w = df['Low'].rolling(window=252, min_periods=1).min().iloc[-1]
@@ -99,7 +126,7 @@ def display_price_statistics(df: pd.DataFrame):
         st.metric("Volume", f"{df['Volume'].iloc[-1]:,}")
 
 def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculate technical indicators for the dataset"""
+    """Calculate technical indicators for the dataset."""
     df['MA10'] = df['Close'].rolling(window=10).mean()
     df['MA20'] = df['Close'].rolling(window=20).mean()
     df['MA60'] = df['Close'].rolling(window=60).mean()
@@ -108,7 +135,6 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def main():
-    """Main application function"""
     st.set_page_config(
         page_title="Stock Price Technical Analysis",
         page_icon="📈",
@@ -120,7 +146,6 @@ def main():
     st.title("Stock Price Technical Analysis")
     st.subheader("Enter a stock symbol and select a timeframe")
     
-    # User inputs
     col1, col2 = st.columns(2)
     with col1:
         symbol = st.text_input("Enter stock symbol (e.g., AAPL, TSLA, MSFT)", "AAPL").upper()
@@ -128,7 +153,6 @@ def main():
         timeframes = get_available_timeframes()
         timeframe = st.selectbox("Select timeframe", list(timeframes.keys()))
     
-    # Additional options
     col3, col4 = st.columns(2)
     with col3:
         show_mas = st.checkbox("Show Moving Averages", value=True)
@@ -146,38 +170,45 @@ def main():
         
         with st.spinner(f"Fetching {symbol} data..."):
             try:
-                # Fetch and process data
                 df = fetch_stock_data(symbol, period, interval, remove_after_hours)
                 
                 if df.empty:
                     st.error("No data found. Please check the stock symbol or timeframe.")
                     return
                 
-                # Calculate indicators and get analysis
+                # 1. Calculate standard indicators (MA, RSI, etc.)
                 df = calculate_technical_indicators(df)
+                
+                # 2. MA & Price/MA rating
                 ma_rating = calculate_ma_technical_rating(df)
                 price_ma_rating = calculate_pricema_rating(df)
                 
-                # Display price statistics
+                # 3. Banker/HotMoney/Retailer columns
+                df = calculate_brv_rating(df)
+                
+                # 4. Display price stats
                 display_price_statistics(df)
                 
-                # Create and display chart
+                # 5. Candlestick chart
                 fig = create_candlestick_chart(df, symbol, show_mas, interval)
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # Show raw data
+                # 6. Show raw data
                 with st.expander("View Raw Data"):
                     st.dataframe(df.reset_index())
                 
-                # Display analysis components (MA & Price/MA ratings)
+                # 7. Display MA & Price/MA rating
                 display_technical_analysis(df, ma_rating, price_ma_rating)
                 
-                # Display moving averages (if checked)
+                # 8. Optionally show MAs
                 if show_mas:
                     display_moving_averages(df)
                 
-                # Now display RSI as a separate table below the MAs
+                # 9. RSI rating
                 display_rsi_analysis(df)
+                
+                # 10. BRV analysis
+                display_brv_analysis(df)
                 
             except ValueError as ve:
                 st.error(f"Error: {str(ve)}")
