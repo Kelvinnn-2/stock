@@ -3,3 +3,9 @@ yfinance
 pandas
 numpy
 plotly
+ta
+tensorflow
+keras
+scikit-learn
+matplotlib
+Ta-Lib

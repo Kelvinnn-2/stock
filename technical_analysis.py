@@ -1,6 +1,7 @@
 import pandas as pd
+from typing import Dict, List, Optional, Union, Literal
 
-def calculate_ma_technical_rating(df):
+def calculate_ma_technical_rating(df: pd.DataFrame) -> Dict[str, Union[str, List[str]]]:
     """
     Calculate technical indicators and generate trading signals
     
@@ -18,9 +19,10 @@ def calculate_ma_technical_rating(df):
     has_long_term_data = not pd.isna(latest['MA200'])
     
     # Initialize rating details
-    rating = "NEUTRAL"
-    confidence = "Medium"
-    details = []
+    rating: Literal["BUY", "HOLD", "SELL", "NEUTRAL"] = "NEUTRAL"
+    confidence: str = "Medium"
+    details: List[str] = []
+    emoji: str = "🔍"
     
     # Strong Buy Signal (Bullish Momentum) - Case 1
     if has_long_term_data and latest['MA10'] > latest['MA20'] > latest['MA60'] > latest['MA200']:
@@ -73,9 +75,8 @@ def calculate_ma_technical_rating(df):
         details.append("Stock is overbought; consider locking in profits")
         emoji = "❗"
     
-    # Default case
+    # Default case is handled by the initial values
     else:
-        emoji = "🔍"
         details.append("Not enough clear signals")
     
     # Additional indicator checks
@@ -93,119 +94,71 @@ def calculate_ma_technical_rating(df):
         'emoji': emoji
     }
 
+def calculate_pricema_rating(df: pd.DataFrame) -> Dict[str, Union[str, List[str]]]:
+    """Calculate price-based moving average rating."""
+    if df.empty or len(df) < 2:
+        return {
+            "rating": "NEUTRAL",
+            "emoji": "🔍",
+            "confidence": "Low",
+            "details": ["Not enough data for analysis"]
+        }
 
-#V2 Price>ma 
-from typing import Dict, List, Tuple
+    latest = df.iloc[-1]
+    ma60: Optional[float] = latest.get('MA60', None)
+    ma200: Optional[float] = latest.get('MA200', None)
 
-def calculate_pricema_rating(df: pd.DataFrame) -> Dict:
-    """
-    Calculate technical rating based on price relationships with moving averages.
-    
-    Args:
-        df: DataFrame with price data and MAs (MA60, MA200 required)
-        
-    Returns:
-        Dict containing rating details:
-            - rating: String rating classification
-            - emoji: Visual indicator
-            - confidence: Rating confidence level
-            - details: List of supporting reasons
-    """
-    # Get latest values
-    current_price = df['Close'].iloc[-1]
-    ma60 = df['MA60'].iloc[-1]
-    ma200 = df['MA200'].iloc[-1]
-    
-    # Calculate percentage differences
-    pct_from_ma60 = ((current_price - ma60) / ma60) * 100
-    pct_from_ma200 = ((current_price - ma200) / ma200) * 100
-    
-    # Initialize rating components
-    rating = ""
-    emoji = ""
-    confidence = ""
-    details = []
-    
-    # Strong Buy Conditions
+    if ma60 is None or ma200 is None:
+        return {
+            "rating": "NEUTRAL",
+            "emoji": "🔍",
+            "confidence": "Low",
+            "details": ["Missing moving averages"]
+        }
+
+    current_price: float = latest['Close']
+    pct_from_ma60: float = ((current_price - ma60) / ma60) * 100
+    pct_from_ma200: float = ((current_price - ma200) / ma200) * 100
+
+    rating: Literal["BUY", "HOLD", "SELL", "NEUTRAL"] = "NEUTRAL"
+    emoji: str = "🔍"
+    confidence: str = "Medium" 
+    details: List[str] = []
+
     if current_price > ma60 and pct_from_ma60 > 2 and current_price > ma200:
-        rating = "BUY"
-        emoji = "✅"
-        confidence = "Strong"
+        rating, emoji, confidence = "BUY", "✅", "Strong"
         details = [
-            f"Price is {pct_from_ma60:.1f}% above 60-day MA, showing strong momentum",
-            f"Confirmed uptrend with price above both 60-day and 200-day MAs",
-            "Volume and price action support bullish momentum"
+            f"Price is {pct_from_ma60:.1f}% above MA60, indicating strong momentum",
+            f"Confirmed uptrend as price is above MA200"
         ]
-    
-    # Weak Buy Conditions
     elif current_price > ma60 and current_price < ma200:
-        rating = "BUY"
-        emoji = "⚠️"
-        confidence = "Weak"
+        rating, emoji, confidence = "BUY", "⚠️", "Weak"
         details = [
-            f"Price is {pct_from_ma60:.1f}% above 60-day MA, showing potential momentum",
-            "Still below 200-day MA, waiting for long-term trend confirmation",
-            "Monitor for increasing volume to confirm trend"
+            f"Price is {pct_from_ma60:.1f}% above MA60, but below MA200",
+            "Trend needs confirmation"
         ]
-    
-    # Hold Conditions
     elif abs(pct_from_ma60) < 2:
-        rating = "HOLD"
-        emoji = "⏳"
-        confidence = "Neutral"
+        rating, emoji, confidence = "HOLD", "⏳", "Neutral"
         details = [
-            f"Price is close to 60-day MA (within {abs(pct_from_ma60):.1f}%)",
-            "No clear trend direction established",
-            "Wait for clearer directional signals"
+            f"Price is within {abs(pct_from_ma60):.1f}% of MA60, indicating sideways movement"
         ]
-    
-    # Weak Sell Conditions
     elif current_price < ma60 and current_price > ma200:
-        rating = "SELL"
-        emoji = "⚠️"
-        confidence = "Weak"
+        rating, emoji, confidence = "SELL", "⚠️", "Weak"
         details = [
-            f"Price is {abs(pct_from_ma60):.1f}% below 60-day MA, showing weakness",
-            "Still above 200-day MA support level",
-            "Monitor for potential further weakness"
+            f"Price is {abs(pct_from_ma60):.1f}% below MA60, showing weakness",
+            "Still above MA200 support"
         ]
-    
-    # Strong Sell Conditions
     elif current_price < ma60 and current_price < ma200:
-        rating = "SELL"
-        emoji = "❌"
-        confidence = "Strong"
+        rating, emoji, confidence = "SELL", "❌", "Strong"
         details = [
-            f"Price is below both 60-day and 200-day MAs",
-            f"Currently {abs(pct_from_ma60):.1f}% below 60-day MA",
-            "Confirmed downtrend with bearish momentum"
+            f"Price is {abs(pct_from_ma60):.1f}% below MA60 and also below MA200",
+            "Confirmed downtrend"
         ]
-    
-    # Reversal Buy Opportunity
-    elif current_price > ma200 * 0.98 and current_price < ma200 * 1.02 and current_price < ma60:
-        rating = "BUY"
-        emoji = "🔄"
-        confidence = "Reversal Opportunity"
-        details = [
-            "Price testing 200-day MA support level",
-            "Potential oversold bounce opportunity",
-            "Watch for volume confirmation of reversal"
-        ]
-    
-    # Overbought Sell Signal
-    elif pct_from_ma60 > 10 and current_price > ma200:
-        rating = "SELL"
-        emoji = "❗"
-        confidence = "Profit Taking"
-        details = [
-            f"Price extended {pct_from_ma60:.1f}% above 60-day MA",
-            "Overbought conditions suggest profit taking",
-            "Consider reducing position size"
-        ]
-    
-    # Add momentum context
-    details.append(get_momentum_context(df))
-    
+
+    # Add momentum context only if enough data is available
+    if len(df) >= 5:
+        details.append(get_momentum_context(df))
+
     return {
         "rating": rating,
         "emoji": emoji,
@@ -214,25 +167,19 @@ def calculate_pricema_rating(df: pd.DataFrame) -> Dict:
     }
 
 def get_momentum_context(df: pd.DataFrame) -> str:
-    """
-    Get additional context about price momentum.
-    
-    Args:
-        df: DataFrame with price data
-        
-    Returns:
-        String describing recent price momentum
-    """
-    # Calculate 5-day price change
-    five_day_change = ((df['Close'].iloc[-1] - df['Close'].iloc[-5]) / df['Close'].iloc[-5]) * 100
-    
+    """Evaluate recent price momentum with safeguards against data length issues."""
+    if df.empty or len(df) < 5:
+        return "Not enough data for momentum analysis"
+
+    five_day_change: float = ((df['Close'].iloc[-1] - df['Close'].iloc[-5]) / df['Close'].iloc[-5]) * 100
+
     if five_day_change > 5:
-        return f"Strong upward momentum with {five_day_change:.1f}% gain over last 5 days"
+        return f"Strong upward momentum with {five_day_change:.1f}% gain in last 5 days"
     elif five_day_change > 2:
-        return f"Moderate upward momentum with {five_day_change:.1f}% gain over last 5 days"
+        return f"Moderate upward momentum with {five_day_change:.1f}% gain in last 5 days"
     elif five_day_change < -5:
-        return f"Strong downward momentum with {abs(five_day_change):.1f}% loss over last 5 days"
+        return f"Strong downward momentum with {abs(five_day_change):.1f}% loss in last 5 days"
     elif five_day_change < -2:
-        return f"Moderate downward momentum with {abs(five_day_change):.1f}% loss over last 5 days"
+        return f"Moderate downward momentum with {abs(five_day_change):.1f}% loss in last 5 days"
     else:
-        return f"Neutral momentum with {abs(five_day_change):.1f}% change over last 5 days"
+        return f"Neutral momentum with {five_day_change:.1f}% change in last 5 days"
